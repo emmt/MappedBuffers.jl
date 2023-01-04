@@ -1,0 +1,13 @@
+name = "MappedBuffers"
+uuid = "010f96a2-bf57-4630-84b9-647e6f9999c4"
+authors = ["Éric Thiébaut <eric.thiebaut@univ-lyon1.fr> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1.3"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
