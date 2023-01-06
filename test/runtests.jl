@@ -20,7 +20,7 @@ path3, io3 = mktemp(;cleanup=true)
         end
     end
     @testset "Writing raw data" begin
-        MappedBuffer(:w, path=path1) do A
+        MappedBuffer(mode=:w, path=path1) do A
             @test A isa DenseVector{UInt8}
             @test isreadable(A) == false
             @test iswritable(A) == true
@@ -35,7 +35,16 @@ path3, io3 = mktemp(;cleanup=true)
             @test resize!(A, length(data)) === A
             @test length(A) == length(data)
             @test sizeof(A) == sizeof(data)
-            @test pointer(A) === pointer(A.array)
+            @test size(A) == (length(A),)
+            @test axes(A) == (1:length(A),)
+            @test all(iszero, A)
+            # Exercise pointer, Base.unsafe_convert, Base.cconvert, ... (NOTE:
+            # @ccall does not exist before Julia 1.5)
+            @test ccall(:memcpy, Ptr{UInt8}, (Ptr{UInt8}, Ptr{UInt8}, Csize_t),
+                        A, data, sizeof(A)) === pointer(A)
+            @test A == data
+            ccall(:memset, Ptr{Cvoid}, (Ptr{Cvoid}, Cint, Csize_t), A, 0, sizeof(A))
+            @test all(iszero, A)
             for i in eachindex(A,data)
                 A[i] = data[i]
             end
@@ -66,6 +75,7 @@ path3, io3 = mktemp(;cleanup=true)
             @test A.input_bytes == 0
             @test A.output_bytes == 0
             @test A == data
+            @test filesize(A) == filesize(pathof(A))
         end
     end
     @testset "Updating raw data" begin
@@ -90,7 +100,7 @@ path3, io3 = mktemp(;cleanup=true)
             r = firstindex(A):2:lastindex(A)
             A[r] = .~(A[r]) # XOR some bytes
             flush(A)
-            B = read(A.path)
+            B = read(pathof(A))
             @test B == A
             @test B != data
             n = length(A)
@@ -100,7 +110,7 @@ path3, io3 = mktemp(;cleanup=true)
             @test all(iszero, view(A, n + 1 : n + m))
             A[n+1:n+m] .= 0x31
             flush(A)
-            B = read(A.path)
+            B = read(pathof(A))
             @test B == A
             A[r] = .~(A[r]) # reverse XOR of bytes
             resize!(A, n) # restore old size
