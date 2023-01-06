@@ -39,15 +39,16 @@ set the buffer with the contents of the mapped file.
 ## Mapped File
 
 Keyword `file` may be set with the path of the mapped file or an i/o stream to
-the mapped file. If unspecified, a temporary file will be created. The
-directory for the mapped file may be specified with keyword `dir`. If a
-temporary mapped file is created, the default directory is given by
-`tempdir()`. If `file` is specified with a relative path and `dir` is
-specified, the path of the mapped file is `abspath(joinpath(dir,file))`. If
-`file` is specified with an absolute path, `dir` must not be specified.
-Finally, `file` may be specified as a tuple `(path,io)` with `path` the
-absolute path to the mapped file and `io` a stream open to this file. This is
-to allow for directly using the output of `mktemp()`.
+the mapped file. If `file` is unspecified, a temporary file will be created.
+Finally, `file` may also be a tuple `(path,io)` with `path` the absolute path
+to the mapped file and `io` a stream open to this file (this is to allow for
+directly using the output of `mktemp()`).
+
+The directory for the mapped file may be specified with keyword `dir`. If
+unspecified, the default directory is given by `tempdir()` for a temporary
+mapped file and is the current working directory if `file` is specified as a
+relative path. if `file` is an absolute path or is specified as a stream, `dir`
+is ignored.
 
 Keyword `delete_file` may be used to specify whether to delete the mapped file
 when the mapped buffer is closed. By default, `delete_file` is `true` if the
@@ -142,16 +143,13 @@ function MappedBuffer(mode::Symbol;
         end
     elseif file isa AbstractString
         # Open file.
-        if isnothing(dir)
+        if isnothing(dir) || isabspath(file)
             path = abspath(file)
-        elseif isabspath(file)
-            throw(ArgumentError("absolute mapped file path must not specified with `dir` keyword"))
         else
             path = abspath(joinpath(dir, file))
         end
         stream = open(path, (mode == READ_ONLY ? "r" : mode == WRITE_ONLY ? "w+" : "r+"))
     else
-        isnothing(dir) || throw(ArgumentError("`dir` keyword must be nothing in this case"))
         if file isa IOStream
             stream = file
             path = filename(stream)
