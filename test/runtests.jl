@@ -121,11 +121,17 @@ path3, io3 = mktemp(;cleanup=true)
         (:bzip2, Bzip2Compressor, Bzip2Decompressor),
         (:gzip,  GzipCompressor,  GzipDecompressor),
         (:xz,    XzCompressor,    XzDecompressor),
-        (:xlib,  ZlibCompressor,  ZlibDecompressor),
+        (:zlib,  ZlibCompressor,  ZlibDecompressor),
         (:zstd,  ZstdCompressor,  ZstdDecompressor))
         s = TranscodingStream{enc}(open(path1, "w"))
         write(s, data)
         close(s)
+        let guess_codec = MappedBuffers.guess_codec
+            @test guess_codec(path1, read=true) === alg
+            @test open(path1) do io
+                guess_codec(io)
+            end === alg
+        end
         s = TranscodingStream{dec}(open(path1, "r"))
         temp = read(s)
         close(s)
