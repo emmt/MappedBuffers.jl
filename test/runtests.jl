@@ -12,15 +12,22 @@ path3, io3 = mktemp(;cleanup=true)
 @testset "MappedBuffers.jl" begin
     @testset "Utilities" begin
         @test MappedBuffers.AccessMode(io1) == MappedBuffers.READ_WRITE
+        if Sys.islinux()
+            @test MappedBuffers.filename(io1) == path1
+        else
+            @test_throws ErrorException MappedBuffers.filename(io1)
+        end
         let guess_codec = MappedBuffers.guess_codec
             @test guess_codec("a/b.c.gr", read=false) === :other
             @test guess_codec("a/b.c.gz", read=false) === :gzip
             @test guess_codec("a/b.c.xz", read=false) === :xz
             @test guess_codec("a/b.c.bz2", read=false) === :bzip2
             @test guess_codec("a/b.c.zst", read=false) === :zstd
+            @test guess_codec(UInt8[]) === :other
         end
     end
     @testset "Writing raw data" begin
+        @test_throws ArgumentError MappedBuffer(:invalid_mode)
         MappedBuffer(mode=:w, file=(path1,io1)) do A
             @test A isa DenseVector{UInt8}
             @test isreadable(A) == false
@@ -208,8 +215,15 @@ path3, io3 = mktemp(;cleanup=true)
             flush(A)
             @test A.output_bytes == sizeof(A) == sizeof(data)
         end
+        # Check integrity.
         open(TranscodingStream{dec}, path1) do io
             @test read(io) == data
+        end
+        # Re-open the compressed file given its name to whether guessing the
+        # codec type from contents works.
+        MappedBuffer(:r, input=path1) do A
+            fill!(A)
+            @test A == data
         end
     end
 end
