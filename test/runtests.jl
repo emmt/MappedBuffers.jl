@@ -11,6 +11,7 @@ path3, io3 = mktemp(;cleanup=true)
 
 @testset "MappedBuffers.jl" begin
     @testset "Utilities" begin
+        @test MappedBuffers.AccessMode(io1) == MappedBuffers.READ_WRITE
         let guess_codec = MappedBuffers.guess_codec
             @test guess_codec("a/b.c.gr", read=false) === :other
             @test guess_codec("a/b.c.gz", read=false) === :gzip

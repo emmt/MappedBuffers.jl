@@ -21,8 +21,8 @@ const OptionalIO = Union{Nothing,IO}
     READ_WRITE = 3
 end
 
-AccessMode(file::IOStream) =
-    AccessMode((isreadable(file) ? 1 : 0)|(iswritable(file) ? 2 : 0))
+AccessMode(io::IOStream) =
+    AccessMode((isreadable(io) ? 1 : 0)|(iswritable(io) ? 2 : 0))
 
 """
     buf = MappedBuffer(mode; kwds...)
