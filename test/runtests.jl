@@ -27,7 +27,7 @@ path3, io3 = mktemp(;cleanup=true)
             @test isreadonly(A) == false
             @test isopen(A) == true
             @test IndexStyle(A) === IndexLinear()
-            @test A.on_close === :truncate
+            @test A.delete_file == false
             @test A.input_bytes == 0
             @test A.output_bytes == 0
             @test length(A) == 0
@@ -70,7 +70,7 @@ path3, io3 = mktemp(;cleanup=true)
             @test isreadonly(A) == true
             @test isopen(A) == true
             @test IndexStyle(A) === IndexLinear()
-            @test A.on_close === :nothing
+            @test A.delete_file == false
             @test A.input_bytes == 0
             @test A.output_bytes == 0
             @test length(A) == 0
@@ -92,7 +92,7 @@ path3, io3 = mktemp(;cleanup=true)
             @test isreadonly(A) == false
             @test isopen(A) == true
             @test IndexStyle(A) === IndexLinear()
-            @test A.on_close === :truncate
+            @test A.delete_file == false
             @test A.input_bytes == 0
             @test A.output_bytes == 0
             @test length(A) == 0
@@ -116,10 +116,16 @@ path3, io3 = mktemp(;cleanup=true)
             @test all(iszero, view(A, n + 1 : n + m))
             A[n+1:n+m] .= 0x31
             flush(A)
-            B = read(pathof(A))
-            @test B == A
+            @test read(pathof(A)) == A
             A[r] = .~(A[r]) # reverse XOR of bytes
             resize!(A, n) # restore old size
+            flush(A)
+            B = read(pathof(A))
+            @test length(B) == n + m
+            @test B[1:n] == A
+            @test all(x -> x == 0x31, B[n+1:end])
+            truncate(A)
+            @test read(pathof(A)) == A
         end
         @test read(path1) == data
     end
@@ -173,7 +179,7 @@ path3, io3 = mktemp(;cleanup=true)
         (:xlib,  ZlibCompressor,  ZlibDecompressor),
         (:zstd,  ZstdCompressor,  ZstdDecompressor))
         MappedBuffer(:w, output=TranscodingStream{enc}(open(path1, "w"))) do A
-            @test A.on_close === :delete
+            @test A.delete_file == true
             @test A.input_bytes == 0
             @test A.output_bytes == 0
             @test length(A) == 0

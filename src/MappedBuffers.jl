@@ -39,34 +39,23 @@ set the buffer with the contents of the mapped file.
 ## Mapped File
 
 Keyword `path` may be set with the path of the mapped file. If unspecified, a
-temporary file will be created (and destroyed on close). The directory for the
-mapped file may be specified with keyword `dir`. If a temporary mapped file is
-created, the default directory is given by `tempdir()`. If `path` is specified
-with a relative path and `dir` is specified, the path of the mapped file is
+temporary file will be created. The directory for the mapped file may be
+specified with keyword `dir`. If a temporary mapped file is created, the
+default directory is given by `tempdir()`. If `path` is specified with a
+relative path and `dir` is specified, the path of the mapped file is
 `abspath(joinpath(dir,path))`. If `path` is specified with an absolute path,
 `dir` must not be specified.
 
 Keyword `file` may be set with an open stream to the mapped file. You almost
-never want to set this keyword.
+never want to use this keyword.
 
-Keyword `on_close` may be used to specify what to do with the mapped file when
-the mapped buffer is closed. Possible settings are:
-
-- `:truncate` to truncate the mapped file to the final size of the mapped
-  buffer so that the mapped file reflects the final contents of the mapped
-  buffer. This behavior is the default when the mapped file is open in `:w` or
-  `:wr` mode and is not a temporary file.
-
-- `:delete` to delete the mapped file on close. This requires to know the path
-  of the mapped file; otherwise, the mapped file is simply truncated to be
-  empty. This behavior is the default when the mapped file is a temporary file.
-
-- `:nothing` to do nothing specific with the mapped file on close. This
-  behavior is the default when the mapped file is an existing file open for
-  reading.
-
-The `on_close` action is only performed if `close(buf)` is called. Nothing is
-done if the mapped buffer is garbage collected before being closed.
+Keyword `delete_file` may be used to specify whether to delete the mapped file
+when the mapped buffer is closed. If the path of the mapped file is unknown,
+the mapped file is not deleted but simply truncated to be empty. By default,
+`delete_file` is true if the mapped file is a temporary file and `false`
+otherwise. Deleting the mapped file is only performed if `close(buf)` is
+called. Nothing is done if the mapped buffer is garbage collected before being
+closed.
 
 
 ## Input and output streams
@@ -81,7 +70,7 @@ If `input` (resp. `output`) is specified as a stream, keyword `close_input`
 (resp. `close_output`) may be set to `false` to not close this stream on
 closing of the mapped buffer.
 
-If and associated stream is specified by its filename, an i/o stream is
+If an associated stream is specified by its filename, an i/o stream is
 automacally open to access the file with automatic compression for an output
 stream based on the filename extension and with automatic decompression for an
 input stream based on the contents of the file;
@@ -91,8 +80,8 @@ mutable struct MappedBuffer{I<:OptionalIO,
                             O<:OptionalIO} <: DenseVector{UInt8}
     input_bytes::Int # number of raw bytes read from input
     output_bytes::Int # number of raw bytes written to output
-    on_close::Symbol # what to do with mapped file on close? or :truncate or :delete
     mode::AccessMode
+    delete_file::Bool # delete mapped file on close?
     close_input::Bool
     close_output::Bool
     array::Vector{UInt8} # memory mapped array reflecting the mapped file contents
@@ -107,7 +96,7 @@ mutable struct MappedBuffer{I<:OptionalIO,
     function MappedBuffer{I,O}(mode::AccessMode, file::IOStream, path::AbstractString,
                                input::I, output::O) where {I<:OptionalIO,
                                                            O<:OptionalIO}
-        return new{I,O}(0, 0, :nothing, mode, !isnothing(input), !isnothing(output),
+        return new{I,O}(0, 0, mode, false, !isnothing(input), !isnothing(output),
                         UInt8[], file, path, input, output)
     end
 end
@@ -119,7 +108,7 @@ function MappedBuffer(mode::Symbol;
                       path::Union{Nothing,AbstractString} = nothing,
                       dir::Union{Nothing,AbstractString} = nothing,
                       file::Union{Nothing,IOStream} = nothing,
-                      on_close::Symbol = :auto,
+                      delete_file::Bool = isnothing(path) && isnothing(file),
                       input = nothing,
                       close_input::Bool = !isnothing(input),
                       output = nothing,
@@ -137,20 +126,6 @@ function MappedBuffer(mode::Symbol;
         mode = READ_WRITE
     else
         throw(ArgumentError("invalid mode ($mode), should be `:r`, `:w`, or `:rw`"))
-    end
-
-    # Check what to do on closing.
-    if on_close === :auto
-        if isnothing(file) && isnothing(path)
-            on_close = :delete
-        elseif mode == READ_ONLY
-            on_close = :nothing
-        else
-            on_close = :truncate
-        end
-    end
-    if on_close !== :delete && on_close !== :nothing && on_close !== :truncate
-        throw(ArgumentError("invalid value for `on_close`, should be `:nothing`, `:truncate`, or `:delete`"))
     end
 
     # Deal with mapped file.
@@ -180,19 +155,19 @@ function MappedBuffer(mode::Symbol;
             path = ""
         end
     end
-    return build(MappedBuffer, mode, file, String(path), on_close,
+    return build(MappedBuffer, mode, file, String(path), delete_file,
                  open_input(input), auto_close(input, close_input),
                  open_output(output), auto_close(output, close_output))
 end
 
 # Type-stable constructor.
 function build(::Type{MappedBuffer}, mode::AccessMode,
-               file::IOStream, path::String, on_close::Symbol,
+               file::IOStream, path::String, delete_file::Bool,
                input::I, close_input::Bool,
                output::O, close_output::Bool) where {I,O}
     try
         B = MappedBuffer{I,O}(mode, file, path, input, output)
-        B.on_close = on_close
+        B.delete_file = delete_file
         if !close_input
             B.close_input = false
         end
@@ -405,14 +380,12 @@ function Base.close(B::MappedBuffer)
             close(B.input)
         end
         if isopen(B.file)
-            if B.on_close === :truncate
-                truncate(B.file, final_size)
-            elseif B.on_close === :delete && isempty(B.path)
+            if B.delete_file && isempty(B.path)
                 truncate(B.file, 0)
             end
             close(B.file)
         end
-        if B.on_close === :delete && !isempty(B.path)
+        if B.delete_file && !isempty(B.path)
             # Remove memory mapped file.
             rm(B.path)
         end
@@ -464,6 +437,24 @@ yields the size (in bytes) of the file to which `B` is mapped to.
 
 """
 Base.filesize(B::MappedBuffer) = filesize(B.file)
+
+"""
+    truncate(B::MappedBuffer)
+
+truncates the file to which `B` is mapped to the current size of `B`. The
+mapped buffer must not have been closed.
+
+Truncating may be used to ensure that the mapped file reflects the final
+contents of the mapped buffer.  For example:
+
+    A = MappedBuffer(:rw, path="some_existing_file.dat", delete_file=false)
+    resize!(A, 100) # set the size of the mapped part
+    ... # set values in A
+    truncate(A) # truncate the mapped file to have this size
+    close(A)
+
+"""
+Base.truncate(B::MappedBuffer) = truncate(B.file, length(B))
 
 """
     MappedBuffers.guess_codec(file; read=isfile(filename))
