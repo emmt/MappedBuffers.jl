@@ -442,12 +442,28 @@ end
 end
 
 # Extend other base methods.
-Base.pathof(B::MappedBuffer) = B.path
-Base.filesize(B::MappedBuffer) = filesize(B.file)
 Base.sizeof(B::MappedBuffer) = sizeof(B.array)
 Base.cconvert(::Type{Ptr{T}}, B::MappedBuffer) where {T} = B.array
 Base.unsafe_convert(::Type{Ptr{T}}, B::MappedBuffer) where {T} =
     Base.unsafe_convert(Ptr{T}, B.array)
+
+"""
+    pathof(B::MappedBuffer) -> str
+
+yields the name of the file to which `B` is mapped to. An empty string is
+returned if this name is unknown (which is only possible when `B` was created
+to map a given stream without specifying the name of the corresponding file).
+
+"""
+Base.pathof(B::MappedBuffer) = B.path
+
+"""
+    filesize(B::MappedBuffer) -> n
+
+yields the size (in bytes) of the file to which `B` is mapped to.
+
+"""
+Base.filesize(B::MappedBuffer) = filesize(B.file)
 
 """
     MappedBuffers.guess_codec(file; read=isfile(filename))
