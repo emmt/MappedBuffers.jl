@@ -38,11 +38,9 @@ path3, io3 = mktemp(;cleanup=true)
             @test A.delete_file == false
             @test A.input_bytes == 0
             @test A.output_bytes == 0
-            @test length(A) == 0
-            @test sizeof(A) == 0
-            @test resize!(A, length(data)) === A
-            @test length(A) == length(data)
-            @test sizeof(A) == sizeof(data)
+            @test length(A) == sizeof(A) == 0
+            @test resize!(A, sizeof(data)) === A
+            @test length(A) == sizeof(A) == sizeof(data)
             @test size(A) == (length(A),)
             @test axes(A) == (1:length(A),)
             @test all(iszero, A)
@@ -71,69 +69,75 @@ path3, io3 = mktemp(;cleanup=true)
         @test read(path1) == data
     end
     @testset "Reading raw data" begin
-        MappedBuffer(:r, file=open(path1)) do A
-            @test A isa DenseVector{UInt8}
-            @test isreadable(A) == true
-            @test iswritable(A) == false
-            @test isreadonly(A) == true
-            @test isopen(A) == true
-            @test IndexStyle(A) === IndexLinear()
-            @test A.delete_file == false
-            @test A.input_bytes == 0
-            @test A.output_bytes == 0
-            @test length(A) == 0
-            @test sizeof(A) == 0
-            @test fill!(A) === A # map to all contents
-            @test length(A) == length(data)
-            @test sizeof(A) == sizeof(data)
-            @test A.input_bytes == 0
-            @test A.output_bytes == 0
-            @test A == data
-            @test filesize(A) == filesize(pathof(A))
+        for fill in (false, true)
+            kwds = (fill ? () : (fill=false,)) # default is to fill
+            MappedBuffer(:r; file=open(path1), kwds...) do A
+                @test A isa DenseVector{UInt8}
+                @test isreadable(A) == true
+                @test iswritable(A) == false
+                @test isreadonly(A) == true
+                @test isopen(A) == true
+                @test IndexStyle(A) === IndexLinear()
+                @test A.delete_file == false
+                @test A.input_bytes == 0
+                @test A.output_bytes == 0
+                if !fill
+                    @test length(A) == sizeof(A) == 0
+                    @test fill!(A) === A # manually map to all contents
+                end
+                @test length(A) == sizeof(A) == sizeof(data)
+                @test A.input_bytes == 0
+                @test A.output_bytes == 0
+                @test A == data
+                @test filesize(A) == filesize(pathof(A))
+            end
         end
     end
     @testset "Updating raw data" begin
-        MappedBuffer(:rw, file=path1) do A
-            @test A isa DenseVector{UInt8}
-            @test isreadable(A) == true
-            @test iswritable(A) == true
-            @test isreadonly(A) == false
-            @test isopen(A) == true
-            @test IndexStyle(A) === IndexLinear()
-            @test A.delete_file == false
-            @test A.input_bytes == 0
-            @test A.output_bytes == 0
-            @test length(A) == 0
-            @test sizeof(A) == 0
-            @test fill!(A) === A # map to all contents
-            @test length(A) == length(data)
-            @test sizeof(A) == sizeof(data)
-            @test A.input_bytes == 0
-            @test A.output_bytes == 0
-            @test A == data
-            r = firstindex(A):2:lastindex(A)
-            A[r] = .~(A[r]) # XOR some bytes
-            flush(A)
-            B = read(pathof(A))
-            @test B == A
-            @test B != data
-            n = length(A)
-            m = 17
-            resize!(A, n + m)
-            @test length(A) == n + m
-            @test all(iszero, view(A, n + 1 : n + m))
-            A[n+1:n+m] .= 0x31
-            flush(A)
-            @test read(pathof(A)) == A
-            A[r] = .~(A[r]) # reverse XOR of bytes
-            resize!(A, n) # restore old size
-            flush(A)
-            B = read(pathof(A))
-            @test length(B) == n + m
-            @test B[1:n] == A
-            @test all(x -> x == 0x31, B[n+1:end])
-            truncate(A)
-            @test read(pathof(A)) == A
+        for fill in (false, true)
+            kwds = (fill ? () : (fill=false,)) # default is to fill
+            MappedBuffer(:rw; file=path1, kwds...) do A
+                @test A isa DenseVector{UInt8}
+                @test isreadable(A) == true
+                @test iswritable(A) == true
+                @test isreadonly(A) == false
+                @test isopen(A) == true
+                @test IndexStyle(A) === IndexLinear()
+                @test A.delete_file == false
+                @test A.input_bytes == 0
+                @test A.output_bytes == 0
+                if !fill
+                    @test length(A) == sizeof(A) == 0
+                    @test fill!(A) === A # map to all contents
+                end
+                @test length(A) == sizeof(A) == sizeof(data)
+                @test A.input_bytes == 0
+                @test A.output_bytes == 0
+                @test A == data
+                r = firstindex(A):2:lastindex(A)
+                A[r] = .~(A[r]) # XOR some bytes
+                flush(A)
+                B = read(pathof(A))
+                @test B == A
+                @test B != data
+                n = length(A)
+                m = 17
+                resize!(A, n + m)
+                @test length(A) == n + m
+                @test all(iszero, view(A, n + 1 : n + m))
+                A[n+1:n+m] .= 0x31
+                flush(A)
+                @test read(pathof(A)) == A
+                A[r] = .~(A[r]) # reverse XOR of bytes
+                resize!(A, n) # restore old size
+                flush(A)
+                B = read(pathof(A))
+                @test length(B) == n + m
+                @test B[1:n] == A
+                @test all(x -> x == 0x31, B[n+1:end])
+                truncate(A)
+                @test read(pathof(A)) == A
+            end
         end
         @test read(path1) == data
     end
@@ -156,29 +160,34 @@ path3, io3 = mktemp(;cleanup=true)
         temp = read(s)
         close(s)
         @test temp == data
-        A = MappedBuffer(:r, input=TranscodingStream{dec}(open(path1, "r")))
-        @test A isa DenseVector{UInt8}
-        @test isopen(A) == true
-        @test isreadable(A) == true
-        @test iswritable(A) == false
-        @test isreadonly(A) == true
-        @test length(A) == 0
-        @test A.input_bytes == 0
-        @test A.output_bytes == 0
-        # Read ~ 1/3rd of the input file.
-        n = div(length(data), 3)
-        @test resize!(A, n) === A
-        @test length(A) == n
-        @test A.input_bytes ≥ n
-        @test A == view(data, 1:n)
-        # Read all remaining data.
-        @test fill!(A) === A
-        @test length(A) == length(data)
-        @test A.input_bytes == length(data)
-        @test A.output_bytes == 0
-        @test A == data
-        close(A)
-        @test isopen(A) == false
+        for fill in (false, true)
+            kwds = (fill ? () : (fill=false,)) # default is to fill
+            A = MappedBuffer(:r; input=TranscodingStream{dec}(open(path1, "r")), kwds...)
+            @test A isa DenseVector{UInt8}
+            @test isopen(A) == true
+            @test isreadable(A) == true
+            @test iswritable(A) == false
+            @test isreadonly(A) == true
+            if !fill
+                @test length(A) == sizeof(A) == 0
+                @test A.input_bytes == 0
+                @test A.output_bytes == 0
+                # Read ~ 1/3rd of the input file.
+                n = div(sizeof(data), 3)
+                @test resize!(A, n) === A
+                @test length(A) == sizeof(A) == n
+                @test A.input_bytes ≥ n
+                @test A == view(data, 1:n)
+                # Read all remaining data.
+                @test fill!(A) === A
+            end
+            @test length(A) == sizeof(A) == sizeof(data)
+            @test A.input_bytes == sizeof(data)
+            @test A.output_bytes == 0
+            @test A == data
+            close(A)
+            @test isopen(A) == false
+        end
     end
     @testset "Writing compressed data ($alg)" for (alg, enc, dec) in (
         (:bzip2, Bzip2Compressor, Bzip2Decompressor),
@@ -193,7 +202,7 @@ path3, io3 = mktemp(;cleanup=true)
             @test length(A) == 0
             @test sizeof(A) == 0
             # Write ~ 1/3rd of the input file.
-            n = div(length(data), 3)
+            n = div(sizeof(data), 3)
             @test resize!(A, n) === A
             @test length(A) == n
             @test A.input_bytes == 0
@@ -203,8 +212,8 @@ path3, io3 = mktemp(;cleanup=true)
             @test A.input_bytes == 0
             @test A.output_bytes == sizeof(A) == n
             # Write all remaining data.
-            @test resize!(A, length(data)) === A
-            @test length(A) == length(data)
+            @test resize!(A, sizeof(data)) === A
+            @test length(A) == sizeof(data)
             @test sizeof(A) == sizeof(data)
             @test A[1:n] == data[1:n]
             @test all(iszero, A[n+1:end])
@@ -222,7 +231,6 @@ path3, io3 = mktemp(;cleanup=true)
         # Re-open the compressed file given its name to whether guessing the
         # codec type from contents works.
         MappedBuffer(:r, input=path1) do A
-            fill!(A)
             @test A == data
         end
     end

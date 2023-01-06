@@ -31,9 +31,21 @@ AccessMode(io::IOStream) =
 yield a byte buffer `buf` whose contents is a memory-mapped region of a file.
 The only mandatory argument/keyword is the access `mode` which is one of: `:r`
 (read), `:w` (write), or `:rw` (read-write). All other settings are specified
-by keywords. The returned object behaves as an abstract vector of bytes. Call
-`resize!(buf,n)` to set the size of the buffer to `n` bytes or `fill!(buf)` to
-set the buffer with the contents of the mapped file.
+by keywords. The returned object behaves as an abstract vector of bytes.
+
+In write mode, the returned buffer is initially empty and its size may be
+adjusted to, say, `n` bytes by calling `resize!(buf,n)`.
+
+In read or read-write mode, the returned buffer has initially the size of the
+mapped file (specified by keyword `file` as explained below) or of the contents
+of the associated input stream (specified by keyword `input` as explained
+below). To start with an initially empty buffer, create the mapped buffer with
+keyword `fill=false`. Then growing the size of the mapped buffer with
+`resize!(buf,n)` will automatically initialize the supplementary bytes with the
+contents of the mapped file or of the associated input stream. In read-write
+mode, beyond the size of the input, contents is initially set with null bytes.
+Call `fill!(buf)` to finish initializing the contents of the mapped file with
+bytes from the associated input.
 
 
 ## Mapped File
@@ -114,6 +126,7 @@ function MappedBuffer(mode::Symbol;
                       file::Union{Nothing,IOStream,AbstractString,
                                   Tuple{AbstractString,IOStream}} = nothing,
                       delete_file::Bool = isnothing(file),
+                      fill::Bool = true,
                       input = nothing,
                       close_input::Bool = !isnothing(input),
                       output = nothing,
@@ -122,11 +135,11 @@ function MappedBuffer(mode::Symbol;
     # Check mandatory mode argument/keyword.
     if mode === :r
         mode = READ_ONLY
-        isnothing(output) || throw(ArgumentError("no associated output is allowed in read-only mode"))
+        isnothing(output) || throw(ArgumentError("no associated output allowed in read-only mode"))
         isnothing(input) && isnothing(file) && throw(ArgumentError("no input specified in read-only mode"))
     elseif mode === :w
         mode = WRITE_ONLY
-        isnothing(input) || throw(ArgumentError("no associated input is allowed in write-only mode"))
+        isnothing(input) || throw(ArgumentError("no associated input allowed in write-only mode"))
     elseif mode === :rw
         mode = READ_WRITE
     else
@@ -161,7 +174,7 @@ function MappedBuffer(mode::Symbol;
     end
     return build(MappedBuffer, mode, delete_file, stream, String(path),
                  open_input(input), auto_close(input, close_input),
-                 open_output(output), auto_close(output, close_output))
+                 open_output(output), auto_close(output, close_output), fill)
 end
 
 # Private type-stable constructor.
@@ -171,7 +184,8 @@ function build(::Type{MappedBuffer},
                stream::IOStream,
                path::String,
                input::I, close_input::Bool,
-               output::O, close_output::Bool) where {I,O}
+               output::O, close_output::Bool,
+               fill::Bool) where {I,O}
     try
         B = MappedBuffer{I,O}(mode, delete, stream, path, input, output)
         if !close_input
@@ -179,6 +193,9 @@ function build(::Type{MappedBuffer},
         end
         if !close_output
             B.close_output = false
+        end
+        if isreadable(B) && fill
+            try_resize!(B, isnothing(B.input) ? filesize(stream) : typemax(Int))
         end
         return B
     catch err
