@@ -20,7 +20,7 @@ path3, io3 = mktemp(;cleanup=true)
         end
     end
     @testset "Writing raw data" begin
-        MappedBuffer(mode=:w, path=path1) do A
+        MappedBuffer(mode=:w, file=(path1,io1)) do A
             @test A isa DenseVector{UInt8}
             @test isreadable(A) == false
             @test iswritable(A) == true
@@ -63,7 +63,7 @@ path3, io3 = mktemp(;cleanup=true)
         @test read(path1) == data
     end
     @testset "Reading raw data" begin
-        MappedBuffer(:r, path=path1) do A
+        MappedBuffer(:r, file=open(path1)) do A
             @test A isa DenseVector{UInt8}
             @test isreadable(A) == true
             @test iswritable(A) == false
@@ -85,7 +85,7 @@ path3, io3 = mktemp(;cleanup=true)
         end
     end
     @testset "Updating raw data" begin
-        MappedBuffer(:rw, path=path1) do A
+        MappedBuffer(:rw, file=path1) do A
             @test A isa DenseVector{UInt8}
             @test isreadable(A) == true
             @test iswritable(A) == true

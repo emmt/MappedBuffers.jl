@@ -38,24 +38,22 @@ set the buffer with the contents of the mapped file.
 
 ## Mapped File
 
-Keyword `path` may be set with the path of the mapped file. If unspecified, a
-temporary file will be created. The directory for the mapped file may be
-specified with keyword `dir`. If a temporary mapped file is created, the
-default directory is given by `tempdir()`. If `path` is specified with a
-relative path and `dir` is specified, the path of the mapped file is
-`abspath(joinpath(dir,path))`. If `path` is specified with an absolute path,
-`dir` must not be specified.
-
-Keyword `file` may be set with an open stream to the mapped file. You almost
-never want to use this keyword.
+Keyword `file` may be set with the path of the mapped file or an i/o stream to
+the mapped file. If unspecified, a temporary file will be created. The
+directory for the mapped file may be specified with keyword `dir`. If a
+temporary mapped file is created, the default directory is given by
+`tempdir()`. If `file` is specified with a relative path and `dir` is
+specified, the path of the mapped file is `abspath(joinpath(dir,file))`. If
+`file` is specified with an absolute path, `dir` must not be specified.
+Finally, `file` may be specified as a tuple `(path,io)` with `path` the
+absolute path to the mapped file and `io` a stream open to this file. This is
+to allow for directly using the output of `mktemp()`.
 
 Keyword `delete_file` may be used to specify whether to delete the mapped file
-when the mapped buffer is closed. If the path of the mapped file is unknown,
-the mapped file is not deleted but simply truncated to be empty. By default,
-`delete_file` is true if the mapped file is a temporary file and `false`
-otherwise. Deleting the mapped file is only performed if `close(buf)` is
-called. Nothing is done if the mapped buffer is garbage collected before being
-closed.
+when the mapped buffer is closed. By default, `delete_file` is `true` if the
+mapped file is a temporary file and `false` otherwise. Deleting the mapped file
+is only performed if `close(buf)` is called. Nothing is done if the mapped
+buffer is garbage collected before being closed or if `delete_file` is `false`.
 
 
 ## Input and output streams
@@ -73,7 +71,7 @@ closing of the mapped buffer.
 If an associated stream is specified by its filename, an i/o stream is
 automacally open to access the file with automatic compression for an output
 stream based on the filename extension and with automatic decompression for an
-input stream based on the contents of the file;
+input stream based on the contents of the file.
 
 """
 mutable struct MappedBuffer{I<:OptionalIO,
@@ -85,19 +83,23 @@ mutable struct MappedBuffer{I<:OptionalIO,
     close_input::Bool
     close_output::Bool
     array::Vector{UInt8} # memory mapped array reflecting the mapped file contents
-    file::IOStream # stream to mapped file
+    stream::IOStream # stream to mapped file
     path::String # normalized absolute path to mapped file
     input::I # associated input stream or `nothing`
     output::O # associated output stream or `nothing`
 
     # The following inner constructor is to prevent building a totally unusable
-    # object, simple default settings are however chosen and may be further
-    # tuned by the caller.
-    function MappedBuffer{I,O}(mode::AccessMode, file::IOStream, path::AbstractString,
-                               input::I, output::O) where {I<:OptionalIO,
-                                                           O<:OptionalIO}
-        return new{I,O}(0, 0, mode, false, !isnothing(input), !isnothing(output),
-                        UInt8[], file, path, input, output)
+    # object. Simple default settings are chosen and may be further tuned by
+    # the caller.
+    function MappedBuffer{I,O}(mode::AccessMode,
+                               delete::Bool,
+                               stream::IOStream,
+                               path::AbstractString,
+                               input::I,
+                               output::O) where {I<:OptionalIO,
+                                                 O<:OptionalIO}
+        return new{I,O}(0, 0, mode, delete, !isnothing(input), !isnothing(output),
+                        UInt8[], stream, path, input, output)
     end
 end
 
@@ -105,10 +107,10 @@ end
 MappedBuffer(; mode::Symbol, kwds...) = MappedBuffer(mode; kwds...)
 
 function MappedBuffer(mode::Symbol;
-                      path::Union{Nothing,AbstractString} = nothing,
                       dir::Union{Nothing,AbstractString} = nothing,
-                      file::Union{Nothing,IOStream} = nothing,
-                      delete_file::Bool = isnothing(path) && isnothing(file),
+                      file::Union{Nothing,IOStream,AbstractString,
+                                  Tuple{AbstractString,IOStream}} = nothing,
+                      delete_file::Bool = isnothing(file),
                       input = nothing,
                       close_input::Bool = !isnothing(input),
                       output = nothing,
@@ -118,7 +120,7 @@ function MappedBuffer(mode::Symbol;
     if mode === :r
         mode = READ_ONLY
         isnothing(output) || throw(ArgumentError("no associated output is allowed in read-only mode"))
-        isnothing(input) && isnothing(file) && isnothing(path) && throw(ArgumentError("no input specified in read-only mode"))
+        isnothing(input) && isnothing(file) && throw(ArgumentError("no input specified in read-only mode"))
     elseif mode === :w
         mode = WRITE_ONLY
         isnothing(input) || throw(ArgumentError("no associated input is allowed in write-only mode"))
@@ -130,44 +132,48 @@ function MappedBuffer(mode::Symbol;
 
     # Deal with mapped file.
     if isnothing(file)
-        if isnothing(path)
-            # Create a temporary file;
-            if isnothing(dir)
-                path, file = mktemp(; cleanup=true)
-            else
-                path, file = mktemp(dir; cleanup=true)
-            end
+        # Create a temporary file.
+        if isnothing(dir)
+            path, stream = mktemp(; cleanup=true)
         else
-            # Open existing file.
-            if isnothing(dir)
-                path = abspath(path)
-            elseif isabspath(path)
-                throw(ArgumentError("absolute mapped file path must not specified with `dir` keyword"))
-            else
-                path = abspath(joinpath(dir, path))
-            end
-            file = open(path, (mode == READ_ONLY ? "r" : mode == WRITE_ONLY ? "w+" : "r+"))
+            path, stream = mktemp(dir; cleanup=true)
         end
+    elseif file isa AbstractString
+        # Open file.
+        if isnothing(dir)
+            path = abspath(file)
+        elseif isabspath(file)
+            throw(ArgumentError("absolute mapped file path must not specified with `dir` keyword"))
+        else
+            path = abspath(joinpath(dir, file))
+        end
+        stream = open(path, (mode == READ_ONLY ? "r" : mode == WRITE_ONLY ? "w+" : "r+"))
     else
-        isreadable(file) || throw(ArgumentError("mapped file must be readable"))
-        mode == READ_ONLY || iswritable(file) || throw(ArgumentError("mapped file must be writable"))
-        if isnothing(path)
-            path = ""
+        isnothing(dir) || throw(ArgumentError("`dir` keyword must be nothing in this case"))
+        if file isa IOStream
+            stream = file
+            path = filename(stream)
+        else # must be Tuple{String,IOStream}
+            path, stream = file
         end
+        isreadable(stream) || throw(ArgumentError("stream to mapped file must be readable"))
+        mode == READ_ONLY || iswritable(stream) || throw(ArgumentError("stream to mapped file must be writable"))
     end
-    return build(MappedBuffer, mode, file, String(path), delete_file,
+    return build(MappedBuffer, mode, delete_file, stream, String(path),
                  open_input(input), auto_close(input, close_input),
                  open_output(output), auto_close(output, close_output))
 end
 
-# Type-stable constructor.
-function build(::Type{MappedBuffer}, mode::AccessMode,
-               file::IOStream, path::String, delete_file::Bool,
+# Private type-stable constructor.
+function build(::Type{MappedBuffer},
+               mode::AccessMode,
+               delete::Bool,
+               stream::IOStream,
+               path::String,
                input::I, close_input::Bool,
                output::O, close_output::Bool) where {I,O}
     try
-        B = MappedBuffer{I,O}(mode, file, path, input, output)
-        B.delete_file = delete_file
+        B = MappedBuffer{I,O}(mode, delete, stream, path, input, output)
         if !close_input
             B.close_input = false
         end
@@ -177,15 +183,9 @@ function build(::Type{MappedBuffer}, mode::AccessMode,
         return B
     catch err
         # Close associated streams on error.
-        if close_input && !isnothing(input) && isopen(input)
-            close(input)
-        end
-        if close_output && !isnothing(output) && isopen(output)
-            close(output)
-        end
-        if isopen(file)
-            close(file)
-        end
+        close_input && !isnothing(input) && isopen(input) && close(input)
+        close_output && !isnothing(output) && isopen(output) && close(output)
+        isopen(file) && close(file)
         throw(err)
     end
 end
@@ -291,20 +291,20 @@ function _resize!(B::MappedBuffer, n::Int)
     writable = iswritable(B)
     if isnothing(B.input)
         # No associated input stream.
-        maxlen = writable ? typemax(Int) : filesize(B.file)
+        maxlen = writable ? typemax(Int) : filesize(B.stream)
     else
         # Shall we transfer bytes from the input stream to the mapped file?
         if n > B.input_bytes && !eof(B.input)
             # For efficiency, reading is done by chunks so more bytes than
             # strictly needed may be transferred.
-            seek(B.file, B.input_bytes) # FIXME: not needed in principle
+            seek(B.stream, B.input_bytes) # FIXME: not needed in principle
             chunk = Vector{UInt8}(undef, CHUNK_SIZE)
             while true
                 nread = readbytes!(B.input, chunk)
                 if nread == length(chunk)
-                    write(B.file, chunk)
+                    write(B.stream, chunk)
                 elseif nread > 0
-                    write(B.file, view(chunk, 1:nread))
+                    write(B.stream, view(chunk, 1:nread))
                 end
                 B.input_bytes += nread
                 if B.input_bytes ≥ n || nread < length(chunk)
@@ -312,7 +312,7 @@ function _resize!(B::MappedBuffer, n::Int)
                     break
                 end
             end
-            flush(B.file)
+            flush(B.stream)
         end
         maxlen = writable ? typemax(Int) : B.input_bytes
     end
@@ -327,7 +327,7 @@ function _resize!(B::MappedBuffer, n::Int)
             # contents of the mapped file with that of the buffer before
             # remapping.
             writable && Mmap.sync!(B.array)
-            B.array = Mmap.mmap(B.file, Vector{UInt8}, (newlen,), 0;
+            B.array = Mmap.mmap(B.stream, Vector{UInt8}, (newlen,), 0;
                                 grow = writable, shared = writable)
         end
     end
@@ -343,7 +343,7 @@ input stream.
 """
 function Base.fill!(B::MappedBuffer)
     if isreadable(B)
-        try_resize!(B, isnothing(B.input) ? filesize(B.file) : typemax(Int))
+        try_resize!(B, isnothing(B.input) ? filesize(B.stream) : typemax(Int))
     end
     return B
 end
@@ -379,15 +379,12 @@ function Base.close(B::MappedBuffer)
         if B.close_input && isopen(B.input)
             close(B.input)
         end
-        if isopen(B.file)
-            if B.delete_file && isempty(B.path)
-                truncate(B.file, 0)
-            end
-            close(B.file)
+        if isopen(B.stream)
+            close(B.stream)
         end
-        if B.delete_file && !isempty(B.path)
+        if B.delete_file
             # Remove memory mapped file.
-            rm(B.path)
+            rm(filename(B))
         end
     end
     return nothing
@@ -423,12 +420,10 @@ Base.unsafe_convert(::Type{Ptr{T}}, B::MappedBuffer) where {T} =
 """
     pathof(B::MappedBuffer) -> str
 
-yields the name of the file to which `B` is mapped to. An empty string is
-returned if this name is unknown (which is only possible when `B` was created
-to map a given stream without specifying the name of the corresponding file).
+yields the name of the file to which `B` is mapped to.
 
 """
-Base.pathof(B::MappedBuffer) = B.path
+Base.pathof(B::MappedBuffer) = filename(B)
 
 """
     filesize(B::MappedBuffer) -> n
@@ -436,7 +431,7 @@ Base.pathof(B::MappedBuffer) = B.path
 yields the size (in bytes) of the file to which `B` is mapped to.
 
 """
-Base.filesize(B::MappedBuffer) = filesize(B.file)
+Base.filesize(B::MappedBuffer) = filesize(B.stream)
 
 """
     truncate(B::MappedBuffer)
@@ -447,20 +442,50 @@ mapped buffer must not have been closed.
 Truncating may be used to ensure that the mapped file reflects the final
 contents of the mapped buffer.  For example:
 
-    A = MappedBuffer(:rw, path="some_existing_file.dat", delete_file=false)
+    A = MappedBuffer(:rw, file="some_existing_file.dat", delete_file=false)
     resize!(A, 100) # set the size of the mapped part
     ... # set values in A
     truncate(A) # truncate the mapped file to have this size
     close(A)
 
 """
-Base.truncate(B::MappedBuffer) = truncate(B.file, length(B))
+Base.truncate(B::MappedBuffer) = truncate(B.stream, length(B))
+
+"""
+    MappedBuffers.filename(io::IOStream)
+    MappedBuffers.filename(B::MappedBuffer)
+
+yield the file name of the stream `io` or of the file mapped by `B`.
+
+"""
+filename(B::MappedBuffer) = getfield(B, :path)
+function filename(io::IOStream)
+    name = io.name
+    i = firstindex(name)
+    j = lastindex(name)
+    if j > i && (@inbounds name[j]) == '>'
+        if startswith(name, "<file ")
+            return String(SubString(name, nextind(name, i, 6), prevind(name, j)))
+        end
+        @static if Sys.islinux()
+            if startswith(name, "<fd ")
+                fd = tryparse(Int, SubString(name, nextind(name, i, 4), prevind(name, j)))
+                if !isnothing(fd)
+                    link = "/proc/self/fd/$fd"
+                    isfile(link)
+                    return String(readlink(link))
+                end
+            end
+        end
+    end
+    error("cannot guess file for IOStream($name)")
+end
 
 """
     MappedBuffers.guess_codec(file; read=isfile(filename))
     MappedBuffers.guess_codec(magic, n=length(magic))
 
-yields the compression format of a file given its name, a stream, or a buffer
+yield the compression format of a file given its name, a stream, or a buffer
 of `n` bytes read from the file. Returns one of: `:gzip`, `:bzip2`, `:xz`,
 `:zlib`, `:zstd`, or `:other`.
 
