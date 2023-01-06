@@ -103,6 +103,8 @@ mutable struct MappedBuffer{I<:OptionalIO,
     end
 end
 
+AccessMode(B::MappedBuffer) = getfield(B, :mode)
+
 # NOTE: Making the mode the only required argument is simple mean to avoid ambiguities.
 MappedBuffer(; mode::Symbol, kwds...) = MappedBuffer(mode; kwds...)
 
@@ -362,10 +364,10 @@ function Base.flush(B::MappedBuffer)
     return nothing
 end
 
-Base.isopen(B::MappedBuffer) = (B.mode != CLOSED)
-Base.isreadable(B::MappedBuffer) = (B.mode == READ_ONLY)|(B.mode == READ_WRITE)
-Base.iswritable(B::MappedBuffer) = (B.mode == WRITE_ONLY)|(B.mode == READ_WRITE)
-Base.isreadonly(B::MappedBuffer) = (B.mode == READ_ONLY)
+Base.isopen(B::MappedBuffer) = (AccessMode(B) != CLOSED)
+Base.isreadable(B::MappedBuffer) = (AccessMode(B) == READ_ONLY)|(AccessMode(B) == READ_WRITE)
+Base.iswritable(B::MappedBuffer) = (AccessMode(B) == WRITE_ONLY)|(AccessMode(B) == READ_WRITE)
+Base.isreadonly(B::MappedBuffer) = (AccessMode(B) == READ_ONLY)
 
 function Base.close(B::MappedBuffer)
     if isopen(B)
