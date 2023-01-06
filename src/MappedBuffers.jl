@@ -375,8 +375,9 @@ end
 
 function Base.flush(B::MappedBuffer)
     if iswritable(B)
-        Mmap.sync!(B.array)
-        if !isnothing(B.output) && (len = length(B)) > B.output_bytes
+        len = length(B)
+        len > 0 && Mmap.sync!(B.array)
+        if !isnothing(B.output) && len > B.output_bytes
             # Output is not the memory mapped file and there are pending bytes.
             write(B.output, view(B.array, B.output_bytes + 1 : len))
             B.output_bytes = len

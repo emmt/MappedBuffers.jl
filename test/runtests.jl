@@ -54,6 +54,7 @@ path3, io3 = mktemp(;cleanup=true)
             @test read(pathof(A)) == data
             # Resizing to 0 and then to original size preserve contents.
             @test length(resize!(A,0)) == 0
+            flush(A)
             @test sizeof(resize!(A, sizeof(data))) == sizeof(data)
             flush(A)
             @test read(pathof(A)) == data
