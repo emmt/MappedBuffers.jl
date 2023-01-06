@@ -50,11 +50,16 @@ path3, io3 = mktemp(;cleanup=true)
             end
             @test_throws BoundsError A[0]
             @test_throws BoundsError A[end+1]
+            flush(A)
+            @test read(pathof(A)) == data
+            # Resizing to 0 and then to original size preserve contents.
+            @test length(resize!(A,0)) == 0
+            @test sizeof(resize!(A, sizeof(data))) == sizeof(data)
+            flush(A)
+            @test read(pathof(A)) == data
         end
         @test filesize(path1) == sizeof(data)
-        let B = read(path1)
-            @test B == data
-        end
+        @test read(path1) == data
     end
     @testset "Reading raw data" begin
         MappedBuffer(:r, path=path1) do A
@@ -195,9 +200,8 @@ path3, io3 = mktemp(;cleanup=true)
             flush(A)
             @test A.output_bytes == sizeof(A) == sizeof(data)
         end
-        open(TranscodingStream{dec}, path1) do s
-            B = read(s)
-            @test B == data
+        open(TranscodingStream{dec}, path1) do io
+            @test read(io) == data
         end
     end
 end
