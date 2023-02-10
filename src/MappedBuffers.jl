@@ -91,7 +91,7 @@ mutable struct MappedBuffer{I<:OptionalIO,
                             O<:OptionalIO} <: DenseVector{UInt8}
     input_bytes::Int # number of raw bytes read from input
     output_bytes::Int # number of raw bytes written to output
-    mode::AccessMode
+    access::AccessMode
     delete_file::Bool # delete mapped file on close?
     close_input::Bool
     close_output::Bool
@@ -104,19 +104,19 @@ mutable struct MappedBuffer{I<:OptionalIO,
     # The following inner constructor is to prevent building a totally unusable
     # object. Simple default settings are chosen and may be further tuned by
     # the caller.
-    function MappedBuffer{I,O}(mode::AccessMode,
+    function MappedBuffer{I,O}(access::AccessMode,
                                delete::Bool,
                                stream::IOStream,
                                path::AbstractString,
                                input::I,
                                output::O) where {I<:OptionalIO,
                                                  O<:OptionalIO}
-        return new{I,O}(0, 0, mode, delete, !isnothing(input), !isnothing(output),
+        return new{I,O}(0, 0, access, delete, !isnothing(input), !isnothing(output),
                         UInt8[], stream, path, input, output)
     end
 end
 
-AccessMode(B::MappedBuffer) = getfield(B, :mode)
+AccessMode(B::MappedBuffer) = getfield(B, :access)
 
 # NOTE: Making the mode the only required argument is simple mean to avoid ambiguities.
 MappedBuffer(; mode::Symbol, kwds...) = MappedBuffer(mode; kwds...)
@@ -133,18 +133,18 @@ function MappedBuffer(mode::Symbol;
                       close_output::Bool = !isnothing(output))
 
     # Check mandatory mode argument/keyword.
+    access = CLOSED
     if mode === :r
-        mode = READ_ONLY
         isnothing(output) || throw(ArgumentError("no associated output allowed in read-only mode"))
         isnothing(input) && isnothing(file) && throw(ArgumentError("no input specified in read-only mode"))
+        access = READ_ONLY
     elseif mode === :w
-        mode = WRITE_ONLY
         isnothing(input) || throw(ArgumentError("no associated input allowed in write-only mode"))
+        access = WRITE_ONLY
     elseif mode === :rw
-        mode = READ_WRITE
-    else
-        throw(ArgumentError("invalid mode ($mode), should be `:r`, `:w`, or `:rw`"))
+        access = READ_WRITE
     end
+    access === CLOSED && throw(ArgumentError("invalid mode ($mode), should be `:r`, `:w`, or `:rw`"))
 
     # Deal with mapped file.
     if isnothing(file)
@@ -161,7 +161,7 @@ function MappedBuffer(mode::Symbol;
         else
             path = abspath(joinpath(dir, file))
         end
-        stream = open(path, (mode == READ_ONLY ? "r" : mode == WRITE_ONLY ? "w+" : "r+"))
+        stream = open(path, (access == READ_ONLY ? "r" : access == WRITE_ONLY ? "w+" : "r+"))
     else
         if file isa IOStream
             stream = file
@@ -170,16 +170,16 @@ function MappedBuffer(mode::Symbol;
             path, stream = file
         end
         isreadable(stream) || throw(ArgumentError("stream to mapped file must be readable"))
-        mode == READ_ONLY || iswritable(stream) || throw(ArgumentError("stream to mapped file must be writable"))
+        access == READ_ONLY || iswritable(stream) || throw(ArgumentError("stream to mapped file must be writable"))
     end
-    return build(MappedBuffer, mode, delete_file, stream, String(path),
+    return build(MappedBuffer, access, delete_file, stream, String(path),
                  open_input(input), auto_close(input, close_input),
                  open_output(output), auto_close(output, close_output), fill)
 end
 
 # Private type-stable constructor.
 function build(::Type{MappedBuffer},
-               mode::AccessMode,
+               access::AccessMode,
                delete::Bool,
                stream::IOStream,
                path::String,
@@ -187,7 +187,7 @@ function build(::Type{MappedBuffer},
                output::O, close_output::Bool,
                fill::Bool) where {I,O}
     try
-        B = MappedBuffer{I,O}(mode, delete, stream, path, input, output)
+        B = MappedBuffer{I,O}(access, delete, stream, path, input, output)
         if !close_input
             B.close_input = false
         end
@@ -389,7 +389,7 @@ function Base.close(B::MappedBuffer)
         flush(B)
         final_size = sizeof(B)
         B.array = UInt8[]
-        B.mode = CLOSED # never close twice
+        B.access = CLOSED # never close twice
         if B.close_output && isopen(B.output)
             close(B.output)
         end
