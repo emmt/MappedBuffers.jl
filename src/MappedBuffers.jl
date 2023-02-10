@@ -127,9 +127,11 @@ function MappedBuffer(mode::Symbol;
                                   Tuple{AbstractString,IOStream}} = nothing,
                       delete_file::Bool = isnothing(file),
                       fill::Bool = true,
-                      input = nothing,
+                      input::Union{Nothing,IO,AbstractString,
+                                   Tuple{Symbol,AbstractString}} = nothing,
                       close_input::Bool = !isnothing(input),
-                      output = nothing,
+                      output::Union{Nothing,IO,AbstractString,
+                                    Tuple{Symbol,AbstractString}} = nothing,
                       close_output::Bool = !isnothing(output))
 
     # Check mandatory mode argument/keyword.
@@ -185,7 +187,7 @@ function build(::Type{MappedBuffer},
                path::String,
                input::I, close_input::Bool,
                output::O, close_output::Bool,
-               fill::Bool) where {I,O}
+               fill::Bool) where {I<:OptionalIO, O<:OptionalIO}
     try
         B = MappedBuffer{I,O}(access, delete, stream, path, input, output)
         if !close_input
@@ -209,10 +211,18 @@ end
 
 # Helper to open input stream, if specified by filename, automatically using
 # suitable decompression codec according to contents.
-open_input(input) = input
-function open_input(filename::AbstractString)
-    io = open(filename, "r")
-    codec = guess_codec(io)
+open_input(filename::AbstractString) = open(filename, "r")
+open_input(::Nothing) = nothing
+function open_input(io::IO)
+    isreadable(io) || throw(ArgumentError("input stream must be readable"))
+    return io
+end
+function open_input(input::Tuple{Symbol,AbstractString})
+    codec, filename = input
+    io = open_input(filename)
+    if codec === :auto
+        codec = guess_codec(io)
+    end
     if codec === :gzip
         return GzipDecompressorStream(io)
     elseif codec === :bzip2
@@ -232,10 +242,18 @@ end
 
 # Helper to open output stream, if specified by filename, automatically using
 # suitable compression codec according to extension.
-open_output(output) = output
-function open_output(filename::AbstractString)
-    io = open(filename, "w")
-    codec = guess_codec(filename; read=false)
+open_output(filename::AbstractString) = open(filename, "w")
+open_output(::Nothing) = nothing
+function open_output(io::IO)
+    iswritable(io) || throw(ArgumentError("output stream must be writable"))
+    return io
+end
+function open_output(output::Tuple{Symbol,AbstractString})
+    codec, filename = output
+    io = open_output(filename)
+    if codec === :auto
+        codec = guess_codec(filename; read=false)
+    end
     if codec === :gzip
         return GzipCompressorStream(io)
     elseif codec === :bzip2
@@ -255,9 +273,10 @@ end
 
 # Always close a stream that we open ourself (i.e., specified by its name),
 # never close a missing stream, use caller choice otherwise.
-auto_close(io::AbstractString, close::Bool) = true
-auto_close(io::Nothing,        close::Bool) = false
-auto_close(io::IO,             close::Bool) = close
+auto_close(io::Tuple{Symbol,AbstractString}, close::Bool) = true
+auto_close(io::AbstractString,               close::Bool) = true
+auto_close(io::Nothing,                      close::Bool) = false
+auto_close(io::IO,                           close::Bool) = close
 
 # Implement do-block syntax.
 MappedBuffer(func::Function; mode::Symbol, kwds...) = MappedBuffer(func, mode; kwds...)

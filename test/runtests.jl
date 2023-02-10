@@ -230,7 +230,7 @@ path3, io3 = mktemp(;cleanup=true)
         end
         # Re-open the compressed file given its name to whether guessing the
         # codec type from contents works.
-        MappedBuffer(:r, input=path1) do A
+        MappedBuffer(:r, input=(:auto, path1)) do A
             @test A == data
         end
     end
