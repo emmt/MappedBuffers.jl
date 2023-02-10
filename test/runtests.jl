@@ -18,12 +18,12 @@ path3, io3 = mktemp(;cleanup=true)
             @test_throws ErrorException MappedBuffers.filename(io1)
         end
         let guess_codec = MappedBuffers.guess_codec
-            @test guess_codec("a/b.c.gr", read=false) === :other
+            @test guess_codec("a/b.c.gr", read=false) === :raw
             @test guess_codec("a/b.c.gz", read=false) === :gzip
             @test guess_codec("a/b.c.xz", read=false) === :xz
             @test guess_codec("a/b.c.bz2", read=false) === :bzip2
             @test guess_codec("a/b.c.zst", read=false) === :zstd
-            @test guess_codec(UInt8[]) === :other
+            @test guess_codec(UInt8[]) === :raw
         end
     end
     @testset "Writing raw data" begin

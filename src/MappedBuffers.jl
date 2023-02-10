@@ -223,8 +223,10 @@ function open_input(filename::AbstractString)
         return ZlibDecompressorStream(io)
     elseif codec === :zstd
         return ZstdDecompressorStream(io)
-    else
+    elseif codec === :raw
         return io
+    else
+        throw(ArgumentError("invalid Codec `:$codec`"))
     end
 end
 
@@ -244,8 +246,10 @@ function open_output(filename::AbstractString)
         return ZlibCompressorStream(io)
     elseif codec === :zstd
         return ZstdCompressorStream(io)
-    else
+    elseif codec === :raw
         return io
+    else
+        throw(ArgumentError("invalid Codec `:$codec`"))
     end
 end
 
@@ -504,7 +508,8 @@ end
 
 yield the compression format of a file given its name, a stream, or a buffer
 of `n` bytes read from the file. Returns one of: `:gzip`, `:bzip2`, `:xz`,
-`:zlib`, `:zstd`, or `:other`.
+`:zlib`, `:zstd`, or `:raw`. The latter indicates that no specific encoding
+was determined for the file.
 
 If `file` is a stream, the compression format is determined by reading a few
 bytes from the stream. The stream position is restored to its initial value, so
@@ -538,7 +543,7 @@ function guess_codec(magic::AbstractVector{UInt8}, n::Integer = length(magic))
         # https://stackoverflow.com/questions/9050260/what-does-a-zlib-header-look-like
         return :zlib
     else
-        return :other
+        return :raw
     end
 end
 
@@ -564,7 +569,7 @@ function guess_codec_from_extension(filename::AbstractString)
             ext == sfx && return codec
         end
     end
-    return :other
+    return :raw
 end
 
 end # module
