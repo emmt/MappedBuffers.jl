@@ -6,8 +6,6 @@ using Test
 
 data = rand(UInt8, 234567)
 path1, io1 = mktemp(;cleanup=true)
-path2, io2 = mktemp(;cleanup=true)
-path3, io3 = mktemp(;cleanup=true)
 
 @testset "MappedBuffers.jl" begin
     @testset "Utilities" begin
