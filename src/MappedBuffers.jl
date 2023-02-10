@@ -260,13 +260,13 @@ auto_close(io::Nothing,        close::Bool) = false
 auto_close(io::IO,             close::Bool) = close
 
 # Implement do-block syntax.
-MappedBuffer(f::Function; mode::Symbol, kwds...) = MappedBuffer(f, mode; kwds...)
-function MappedBuffer(f::Function, mode::Symbol; kwds...)
-    A = MappedBuffer(mode; kwds...)
+MappedBuffer(func::Function; mode::Symbol, kwds...) = MappedBuffer(func, mode; kwds...)
+function MappedBuffer(func::Function, mode::Symbol; kwds...)
+    buf = MappedBuffer(mode; kwds...)
     try
-        return f(A)
+        func(buf)
     finally
-        close(A)
+        close(buf)
     end
 end
 
