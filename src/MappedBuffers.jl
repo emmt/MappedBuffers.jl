@@ -140,16 +140,16 @@ function MappedBuffer(mode::Symbol;
     # Check mandatory mode argument/keyword.
     access = CLOSED
     if mode === :r
-        isnothing(output) || throw(ArgumentError("no associated output allowed in read-only mode"))
-        isnothing(input) && isnothing(file) && throw(ArgumentError("no input specified in read-only mode"))
+        isnothing(output) || argument_error("no associated output allowed in read-only mode")
+        isnothing(input) && isnothing(file) && argument_error("no input specified in read-only mode")
         access = READ_ONLY
     elseif mode === :w
-        isnothing(input) || throw(ArgumentError("no associated input allowed in write-only mode"))
+        isnothing(input) || argument_error("no associated input allowed in write-only mode")
         access = WRITE_ONLY
     elseif mode === :rw
         access = READ_WRITE
     end
-    access === CLOSED && throw(ArgumentError("invalid mode ($mode), should be `:r`, `:w`, or `:rw`"))
+    access === CLOSED && argument_error("invalid mode ($mode), should be `:r`, `:w`, or `:rw`")
 
     # Deal with mapped file.
     if isnothing(file)
@@ -174,8 +174,8 @@ function MappedBuffer(mode::Symbol;
         else # must be Tuple{String,IOStream}
             path, stream = file
         end
-        isreadable(stream) || throw(ArgumentError("stream to mapped file must be readable"))
-        access == READ_ONLY || iswritable(stream) || throw(ArgumentError("stream to mapped file must be writable"))
+        isreadable(stream) || argument_error("stream to mapped file must be readable")
+        access == READ_ONLY || iswritable(stream) || argument_error("stream to mapped file must be writable")
     end
     return build(MappedBuffer, access, delete_file, stream, String(path),
                  open_input(input), auto_close(input, close_input),
@@ -217,12 +217,12 @@ end
 open_input(filename::AbstractString) = open(filename, "r")
 open_input(::Nothing) = nothing
 function open_input(io::IO)
-    isreadable(io) || throw(ArgumentError("input stream must be readable"))
+    isreadable(io) || argument_error("input stream must be readable")
     return io
 end
 function open_input(input::Tuple{DataType,AbstractString})
     codec, filename = input
-    codec <: Codec || throw(ArgumentError("expecting codec type"))
+    codec <: Codec || argument_error("expecting codec type")
     return TranscodingStream{codec}(open_input(filename))
 end
 function open_input(input::Tuple{Symbol,AbstractString})
@@ -244,7 +244,7 @@ function open_input(input::Tuple{Symbol,AbstractString})
     elseif codec === :raw
         return io
     else
-        throw(ArgumentError("invalid Codec `:$codec`"))
+        argument_error("invalid Codec `:$codec`")
     end
 end
 
@@ -253,12 +253,12 @@ end
 open_output(filename::AbstractString) = open(filename, "w")
 open_output(::Nothing) = nothing
 function open_output(io::IO)
-    iswritable(io) || throw(ArgumentError("output stream must be writable"))
+    iswritable(io) || argument_error("output stream must be writable")
     return io
 end
 function open_output(output::Tuple{DataType,AbstractString})
     codec, filename = output
-    codec <: Codec || throw(ArgumentError("expecting codec type"))
+    codec <: Codec || argument_error("expecting codec type")
     return TranscodingStream{codec}(open_output(filename))
 end
 function open_output(output::Tuple{Symbol,AbstractString})
@@ -280,7 +280,7 @@ function open_output(output::Tuple{Symbol,AbstractString})
     elseif codec === :raw
         return io
     else
-        throw(ArgumentError("invalid Codec `:$codec`"))
+        argument_error("invalid Codec `:$codec`")
     end
 end
 
@@ -609,5 +609,8 @@ function guess_codec_from_extension(filename::AbstractString)
     end
     return :raw
 end
+
+argument_error(str::ArgumentError.types[1]) = throw(ArgumentError(str))
+@noinline argument_error(args...) = argument_error(string(args...))
 
 end # module

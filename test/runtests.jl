@@ -25,6 +25,10 @@ path3, io3 = mktemp(;cleanup=true)
             @test guess_codec("a/b.c.zst", read=false) === :zstd
             @test guess_codec(UInt8[]) === :raw
         end
+        let argument_error = MappedBuffers.argument_error
+            @test_throws ArgumentError argument_error("oops!")
+            @test_throws ArgumentError argument_error("bad value: ", 42)
+        end
     end
     @testset "Writing raw data" begin
         @test_throws ArgumentError MappedBuffer(:invalid_mode)
