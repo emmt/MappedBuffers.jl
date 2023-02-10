@@ -4,6 +4,7 @@ export MappedBuffer
 
 using Mmap
 using TranscodingStreams, CodecBzip2, CodecZlib, CodecZstd, CodecXz
+using TranscodingStreams: Codec
 
 # Size of chunks for transferring data. Should be a multiple of the memory page
 # size (usually 4k). Even though the size of internal buffers in Julia i/o
@@ -128,10 +129,12 @@ function MappedBuffer(mode::Symbol;
                       delete_file::Bool = isnothing(file),
                       fill::Bool = true,
                       input::Union{Nothing,IO,AbstractString,
-                                   Tuple{Symbol,AbstractString}} = nothing,
+                                   Tuple{Symbol,AbstractString},
+                                   Tuple{DataType,AbstractString}} = nothing,
                       close_input::Bool = !isnothing(input),
                       output::Union{Nothing,IO,AbstractString,
-                                    Tuple{Symbol,AbstractString}} = nothing,
+                                    Tuple{Symbol,AbstractString},
+                                    Tuple{DataType,AbstractString}} = nothing,
                       close_output::Bool = !isnothing(output))
 
     # Check mandatory mode argument/keyword.
@@ -217,6 +220,11 @@ function open_input(io::IO)
     isreadable(io) || throw(ArgumentError("input stream must be readable"))
     return io
 end
+function open_input(input::Tuple{DataType,AbstractString})
+    codec, filename = input
+    codec <: Codec || throw(ArgumentError("expecting codec type"))
+    return TranscodingStream{codec}(open_input(filename))
+end
 function open_input(input::Tuple{Symbol,AbstractString})
     codec, filename = input
     io = open_input(filename)
@@ -248,6 +256,11 @@ function open_output(io::IO)
     iswritable(io) || throw(ArgumentError("output stream must be writable"))
     return io
 end
+function open_output(output::Tuple{DataType,AbstractString})
+    codec, filename = output
+    codec <: Codec || throw(ArgumentError("expecting codec type"))
+    return TranscodingStream{codec}(open_output(filename))
+end
 function open_output(output::Tuple{Symbol,AbstractString})
     codec, filename = output
     io = open_output(filename)
@@ -273,10 +286,11 @@ end
 
 # Always close a stream that we open ourself (i.e., specified by its name),
 # never close a missing stream, use caller choice otherwise.
-auto_close(io::Tuple{Symbol,AbstractString}, close::Bool) = true
-auto_close(io::AbstractString,               close::Bool) = true
-auto_close(io::Nothing,                      close::Bool) = false
-auto_close(io::IO,                           close::Bool) = close
+auto_close(io::Tuple{Symbol,AbstractString},   close::Bool) = true
+auto_close(io::Tuple{DataType,AbstractString}, close::Bool) = true
+auto_close(io::AbstractString,                 close::Bool) = true
+auto_close(io::Nothing,                        close::Bool) = false
+auto_close(io::IO,                             close::Bool) = close
 
 # Implement do-block syntax.
 MappedBuffer(func::Function; mode::Symbol, kwds...) = MappedBuffer(func, mode; kwds...)
@@ -453,6 +467,11 @@ end
 
 # Extend other base methods.
 Base.sizeof(B::MappedBuffer) = sizeof(B.array)
+
+# Implement getting the address of the buffer. It is sufficient to preserve the
+# array inside the byte buffer (Base.cconvert), but direct calls to
+# Base.unsafe_convert are allowed (the caller is however responsible of
+# preserving the mapped buffer).
 Base.cconvert(::Type{Ptr{T}}, B::MappedBuffer) where {T} = B.array
 Base.unsafe_convert(::Type{Ptr{T}}, B::MappedBuffer) where {T} =
     Base.unsafe_convert(Ptr{T}, B.array)

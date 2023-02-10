@@ -162,7 +162,7 @@ path3, io3 = mktemp(;cleanup=true)
         @test temp == data
         for fill in (false, true)
             kwds = (fill ? () : (fill=false,)) # default is to fill
-            A = MappedBuffer(:r; input=TranscodingStream{dec}(open(path1, "r")), kwds...)
+            A = MappedBuffer(:r; input=(dec, path1), kwds...)
             @test A isa DenseVector{UInt8}
             @test isopen(A) == true
             @test isreadable(A) == true
@@ -195,7 +195,7 @@ path3, io3 = mktemp(;cleanup=true)
         (:xz,    XzCompressor,    XzDecompressor),
         (:xlib,  ZlibCompressor,  ZlibDecompressor),
         (:zstd,  ZstdCompressor,  ZstdDecompressor))
-        MappedBuffer(:w, output=TranscodingStream{enc}(open(path1, "w"))) do A
+        MappedBuffer(:w, output=(enc, path1)) do A
             @test A.delete_file == true
             @test A.input_bytes == 0
             @test A.output_bytes == 0
