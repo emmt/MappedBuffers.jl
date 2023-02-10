@@ -98,7 +98,7 @@ path1, io1 = mktemp(;cleanup=true)
     @testset "Updating raw data" begin
         for fill in (false, true)
             kwds = (fill ? () : (fill=false,)) # default is to fill
-            MappedBuffer(:rw; file=path1, kwds...) do A
+            MappedBuffer(:rw; file=basename(path1), dir=dirname(path1), kwds...) do A
                 @test A isa DenseVector{UInt8}
                 @test isreadable(A) == true
                 @test iswritable(A) == true
