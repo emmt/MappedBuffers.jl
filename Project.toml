@@ -11,11 +11,18 @@ CodecZstd = "6b39b394-51ab-5f42-8807-6242bab2b4c2"
 Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
 TranscodingStreams = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 
+[weakdeps]
+"FITSHeaders" = "010f96a2-bf57-4630-84b9-647e6f9999c4"
+
+[extensions]
+MappedBuffersFITSHeadersExt = ["FITSHeaders"]
+
 [compat]
 CodecBzip2 = "0.7"
 CodecXz = "0.7"
 CodecZstd = "0.7"
 CodecZlib = "0.7"
+FITSHeaders = "0.4, 0.5"
 TranscodingStreams = "0.9"
 julia = "1.3"
 
